@@ -1,130 +1,372 @@
 import { useState, useEffect } from "react";
-import { ref, push, onValue, remove } from "firebase/database";
-import { db } from "./firebase";
-import { Trash2, ExternalLink, Gift, Heart } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Plus, Trash2, ExternalLink, Heart, X } from "lucide-react";
+import { ref, push, onValue, remove, update } from "firebase/database";
+import { db } from "./firebase";
 
+// ---------- Tema ----------
+const theme = {
+  bg: "#120a1f", // koyumsu mor arkaplan
+  bgDeep: "#0c0616",
+  card: "rgba(255,255,255,0.03)",
+  border: "rgba(255,255,255,0.12)",
+  fg: "#ffffff",
+  muted: "rgba(255,255,255,0.6)",
+  accent: "#a78bfa",
+};
+
+const PRIORITIES = {
+  COK_IYI: { label: "ÇOK İYİ", color: "#f472b6", bg: "rgba(244,114,182,0.15)", ring: "rgba(244,114,182,0.4)" },
+  IYI: { label: "İYİ", color: "#a78bfa", bg: "rgba(167,139,250,0.15)", ring: "rgba(167,139,250,0.4)" },
+  MEH: { label: "MEH", color: "#94a3b8", bg: "rgba(148,163,184,0.12)", ring: "rgba(148,163,184,0.35)" },
+};
+
+const PRIORITY_ORDER = ["COK_IYI", "IYI", "MEH"];
+
+function domainOf(url) {
+  try {
+    return new URL(url).hostname.replace("www.", "");
+  } catch {
+    return url;
+  }
+}
+
+function normalizeUrl(url) {
+  if (!url) return "";
+  if (!/^https?:\/\//i.test(url)) return "https://" + url;
+  return url;
+}
+
+// ---------- Ekleme Formu ----------
+function AddForm({ onAdd, onClose, ownerName }) {
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
+  const [priority, setPriority] = useState("IYI");
+
+  const canSave = title.trim() && url.trim();
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -8, scale: 0.98 }}
+      transition={{ duration: 0.2 }}
+      className="rounded-2xl p-4 mb-4"
+      style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${theme.border}` }}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm font-semibold" style={{ color: theme.fg }}>
+          {ownerName} için yeni istek
+        </span>
+        <button onClick={onClose} className="p-1 rounded-md hover:bg-white/10 transition">
+          <X size={16} color={theme.muted} />
+        </button>
+      </div>
+
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Ne bu? (ör. kablosuz kulaklık)"
+        className="w-full rounded-lg px-3 py-2 text-sm mb-2 outline-none"
+        style={{ background: theme.bgDeep, border: `1px solid ${theme.border}`, color: theme.fg }}
+      />
+      <input
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="Link (trendyol, hepsiburada, amazon...)"
+        className="w-full rounded-lg px-3 py-2 text-sm mb-3 outline-none"
+        style={{ background: theme.bgDeep, border: `1px solid ${theme.border}`, color: theme.fg }}
+      />
+
+      <div className="flex gap-2 mb-4">
+        {PRIORITY_ORDER.map((key) => {
+          const p = PRIORITIES[key];
+          const active = priority === key;
+          return (
+            <button
+              key={key}
+              onClick={() => setPriority(key)}
+              className="flex-1 rounded-full px-2 py-1.5 text-xs font-bold tracking-wide transition"
+              style={{
+                background: active ? p.bg : "transparent",
+                color: active ? p.color : theme.muted,
+                border: `1px solid ${active ? p.ring : theme.border}`,
+              }}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <motion.button
+        whileHover={{ scale: canSave ? 1.02 : 1 }}
+        whileTap={{ scale: canSave ? 0.97 : 1 }}
+        disabled={!canSave}
+        onClick={() => {
+          onAdd({
+            title: title.trim(),
+            url: normalizeUrl(url.trim()),
+            priority,
+            createdAt: Date.now(),
+          });
+          onClose();
+        }}
+        className="w-full rounded-full py-2.5 text-sm font-semibold transition"
+        style={{
+          background: canSave ? theme.fg : "rgba(255,255,255,0.1)",
+          color: canSave ? theme.bgDeep : theme.muted,
+          cursor: canSave ? "pointer" : "not-allowed",
+        }}
+      >
+        Listeye Ekle
+      </motion.button>
+    </motion.div>
+  );
+}
+
+// ---------- Tek İstek Kartı ----------
+function WishCard({ item, onDelete }) {
+  const p = PRIORITIES[item.priority] || PRIORITIES.IYI;
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ duration: 0.25 }}
+      className="group rounded-2xl p-4 flex items-start gap-3"
+      style={{ background: theme.card, border: `1px solid ${theme.border}` }}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span
+            className="text-xs font-bold px-2 py-0.5 rounded-md tracking-wide"
+            style={{ background: p.bg, color: p.color, border: `1px solid ${p.ring}` }}
+          >
+            {p.label}
+          </span>
+        </div>
+        <div className="text-sm font-semibold mb-0.5 truncate" style={{ color: theme.fg }}>
+          {item.title}
+        </div>
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs hover:underline"
+          style={{ color: theme.accent }}
+        >
+          {domainOf(item.url)} <ExternalLink size={11} />
+        </a>
+      </div>
+      <button
+        onClick={() => onDelete(item.id)}
+        className="opacity-0 group-hover:opacity-100 transition p-1.5 rounded-lg hover:bg-white/10"
+        title="Sil"
+      >
+        <Trash2 size={15} color={theme.muted} />
+      </button>
+    </motion.div>
+  );
+}
+
+// ---------- Kolon ----------
+function WishColumn({ ownerKey, ownerName, items, onAdd, onDelete }) {
+  const [showForm, setShowForm] = useState(false);
+
+  const sorted = [...items].sort(
+    (a, b) => PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority)
+  );
+
+  return (
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-2">
+          <Heart
+            size={18}
+            color={ownerKey === "nehir" ? "#f472b6" : "#a78bfa"}
+            fill={ownerKey === "nehir" ? "#f472b6" : "#a78bfa"}
+          />
+          <h2 className="text-2xl font-medium tracking-tight" style={{ color: theme.fg }}>
+            {ownerName}
+          </h2>
+          <span className="text-sm" style={{ color: theme.muted }}>
+            ({items.length})
+          </span>
+        </div>
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setShowForm((s) => !s)}
+          className="flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold"
+          style={{ background: theme.fg, color: theme.bgDeep }}
+        >
+          <Plus size={15} /> Ekle
+        </motion.button>
+      </div>
+
+      <AnimatePresence>
+        {showForm && (
+          <AddForm ownerName={ownerName} onAdd={(item) => onAdd(ownerKey, item)} onClose={() => setShowForm(false)} />
+        )}
+      </AnimatePresence>
+
+      <div className="flex flex-col gap-3">
+        <AnimatePresence>
+          {sorted.map((item) => (
+            <WishCard key={item.id} item={item} onDelete={(id) => onDelete(ownerKey, id)} />
+          ))}
+        </AnimatePresence>
+        {sorted.length === 0 && !showForm && (
+          <div
+            className="rounded-2xl p-8 text-center text-sm"
+            style={{ border: `1px dashed ${theme.border}`, color: theme.muted }}
+          >
+            Henüz istek yok. "Ekle" ile ilk linki koy.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Ana Uygulama ----------
 export default function App() {
-  const [items, setItems] = useState([]);
-  const [productName, setProductName] = useState("");
-  const [productLink, setProductLink] = useState("");
+  const [data, setData] = useState({ nehir: [], emre: [] });
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const itemsRef = ref(db, "hediyeler");
-    const unsubscribe = onValue(itemsRef, (snapshot) => {
-      const data = snapshot.val();
-      const loadedItems = [];
-      if (data) {
-        for (const key in data) {
-          loadedItems.push({ id: key, ...data[key] });
+    const listelerRef = ref(db, 'listeler');
+    
+    const unsubscribe = onValue(listelerRef, (snapshot) => {
+      const dbData = snapshot.val();
+      
+      const newData = { nehir: [], emre: [] };
+      
+      if (dbData) {
+        if (dbData.nehir) {
+          newData.nehir = Object.keys(dbData.nehir).map(key => ({
+            id: key,
+            ...dbData.nehir[key]
+          }));
+        }
+        if (dbData.emre) {
+          newData.emre = Object.keys(dbData.emre).map(key => ({
+            id: key,
+            ...dbData.emre[key]
+          }));
         }
       }
-      setItems(loadedItems.reverse());
+      
+      setData(newData);
+      setLoaded(true);
     });
+
     return () => unsubscribe();
   }, []);
 
-  const handleAddItem = (e) => {
-    e.preventDefault();
-    if (!productName.trim() || !productLink.trim()) return;
-
-    const itemsRef = ref(db, "hediyeler");
-    push(itemsRef, {
-      title: productName,
-      link: productLink,
-      addedAt: Date.now()
-    });
-
-    setProductName("");
-    setProductLink("");
+  const addItem = (owner, item) => {
+    const ownerRef = ref(db, `listeler/${owner}`);
+    push(ownerRef, item);
   };
-
-  const handleDelete = (id) => {
-    const itemRef = ref(db, `hediyeler/${id}`);
+  
+  const deleteItem = (owner, id) => {
+    const itemRef = ref(db, `listeler/${owner}/${id}`);
     remove(itemRef);
   };
 
   return (
-    <div className="min-h-screen bg-pink-50 p-6 md:p-12 font-sans flex justify-center items-start">
-      <div className="w-full max-w-2xl bg-white rounded-3xl shadow-xl p-8 mt-10">
-        <div className="flex items-center gap-3 mb-8 border-b pb-6 border-pink-100">
-          <Gift className="text-pink-500" size={36} />
-          <h1 className="text-3xl md:text-4xl font-serif font-bold text-gray-800 flex items-center gap-2">
-            Nehir & Emre <Heart className="text-red-500 fill-red-500" size={28} />
-          </h1>
+    <div className="min-h-screen w-full" style={{ background: theme.bg }}>
+      {/* Arkaplan mor parıltı */}
+      <div
+        className="pointer-events-none fixed inset-0"
+        style={{
+          background:
+            "radial-gradient(60% 40% at 50% 0%, rgba(139,92,246,0.18) 0%, rgba(139,92,246,0) 70%), radial-gradient(40% 30% at 85% 80%, rgba(244,114,182,0.08) 0%, rgba(244,114,182,0) 70%)",
+        }}
+      />
+
+      <div className="relative max-w-5xl mx-auto px-4 md:px-8 py-14 md:py-20">
+        {/* Hero */}
+        <div className="flex flex-col items-center text-center mb-14 md:mb-20">
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="liquid-glass px-3 py-2 rounded-lg mb-6 flex items-center gap-2"
+          >
+            <span
+              className="px-2 py-0.5 rounded-md text-sm font-medium"
+              style={{ background: theme.fg, color: theme.bgDeep }}
+            >
+              💜
+            </span>
+            <span className="text-sm font-medium" style={{ color: theme.muted }}>
+              Nehir &amp; Emre — Hediye Listesi
+            </span>
+          </motion.div>
+
+          <motion.h1
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.1 }}
+            className="text-5xl md:text-7xl font-medium mb-3"
+            style={{ color: theme.fg, letterSpacing: "-2px", lineHeight: 1.15 }}
+          >
+            İsteklerimiz.
+            <br />
+            Tek Bir <span className="serif-italic">Listede.</span>
+          </motion.h1>
+
+          <motion.p
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="text-lg"
+            style={{ color: "rgba(238,242,246,0.9)" }}
+          >
+            Birbirimize almak istediğimiz hediyeler,
+            <br />
+            önceliğine göre sıralı.
+          </motion.p>
         </div>
 
-        <form onSubmit={handleAddItem} className="flex flex-col gap-4 mb-8">
-          <input
-            type="text"
-            placeholder="Ne almak istiyoruz? (Örn: Çift Kazakları)"
-            value={productName}
-            onChange={(e) => setProductName(e.target.value)}
-            className="w-full px-5 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-pink-100 focus:border-pink-300 outline-none transition-all text-gray-700"
-            required
-          />
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input
-              type="url"
-              placeholder="Ürün Linki (https://...)"
-              value={productLink}
-              onChange={(e) => setProductLink(e.target.value)}
-              className="w-full px-5 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-pink-100 focus:border-pink-300 outline-none transition-all text-gray-700"
-              required
-            />
-            <button
-              type="submit"
-              className="bg-pink-500 text-white px-8 py-3 rounded-xl font-semibold hover:bg-pink-600 active:bg-pink-700 transition-colors whitespace-nowrap shadow-md shadow-pink-200"
-            >
-              Listeye Ekle
-            </button>
-          </div>
-        </form>
-
-        <ul className="space-y-4">
-          <AnimatePresence>
-            {items.map((item) => (
-              <motion.li 
-                key={item.id}
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.2 }}
-                className="flex items-center justify-between p-5 bg-pink-50/50 rounded-2xl border border-pink-100 group hover:bg-pink-50 transition-colors"
-              >
-                <div className="flex-1 overflow-hidden pr-4">
-                  <p className="font-semibold text-gray-800 truncate text-lg">{item.title}</p>
-                  <a 
-                    href={item.link} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-sm text-pink-600 hover:text-pink-700 hover:underline flex items-center gap-1 mt-1 w-fit"
-                  >
-                    Ürüne Git <ExternalLink size={14} />
-                  </a>
-                </div>
-                
-                <button 
-                  onClick={() => handleDelete(item.id)}
-                  className="p-3 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
-                  title="Listeden Kaldır"
-                >
-                  <Trash2 size={20} />
-                </button>
-              </motion.li>
-            ))}
-          </AnimatePresence>
-          
-          {items.length === 0 && (
-            <motion.p 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-center text-gray-400 py-12 italic bg-gray-50 rounded-2xl border border-dashed border-gray-200"
-            >
-              Liste şu an boş. Birlikte alacağınız ilk şeyi ekleyin!
-            </motion.p>
+        {/* İki kolon */}
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.35 }}
+          className="flex flex-col md:flex-row gap-10 md:gap-8"
+        >
+          {loaded ? (
+            <>
+              <WishColumn
+                ownerKey="nehir"
+                ownerName="Nehir'in Listesi"
+                items={data.nehir}
+                onAdd={addItem}
+                onDelete={deleteItem}
+              />
+              <div className="hidden md:block w-px self-stretch" style={{ background: theme.border }} />
+              <WishColumn
+                ownerKey="emre"
+                ownerName="Emre'nin Listesi"
+                items={data.emre}
+                onAdd={addItem}
+                onDelete={deleteItem}
+              />
+            </>
+          ) : (
+            <div className="w-full text-center py-16 text-sm" style={{ color: theme.muted }}>
+              Liste yükleniyor…
+            </div>
           )}
-        </ul>
+        </motion.div>
+
+        <div className="mt-20 text-center text-xs" style={{ color: "rgba(255,255,255,0.35)" }}>
+          Arkaplana fotoğraflarımız gelecek 📸
+        </div>
       </div>
     </div>
   );
