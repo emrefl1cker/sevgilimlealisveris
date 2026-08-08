@@ -1,0 +1,8 @@
+# Kurulum Talimatları
+
+1. Içindeki 'src' klasörünü, kendi projenizdeki 'src' klasörünün içine kopyalayın (App.jsx'in üzerine yazın ve firebase.js eklensin).
+2. Terminalinizde şu komutu çalıştırarak Firebase'i kurun:
+   npm install firebase
+3. Firebase konsolundan (Realtime Database -> Rules) okuma/yazma kurallarını 'true' yaptığınızdan emin olun.
+4. Uygulamayı başlatın:
+   npm run dev
